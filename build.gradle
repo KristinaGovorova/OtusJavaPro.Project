@@ -1,0 +1,86 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.flywaydb:flyway-database-postgresql:11.3.4")
+    }
+}
+
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.3'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.flywaydb.flyway' version '11.3.4'
+    id 'io.freefair.lombok' version '8.13'
+}
+
+group = 'ru.tele2.govorova'
+version = '0.0.1-SNAPSHOT'
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+java {
+    sourceCompatibility = '17'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    //    implementation 'org.springframework.boot:spring-boot-starter-security'
+    //    implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
+    //    testImplementation 'org.springframework.security:spring-security-test'
+
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+
+    annotationProcessor 'org.projectlombok:lombok:1.18.34'
+    compileOnly 'org.projectlombok:lombok:1.18.34'
+
+    implementation 'io.freefair.gradle:lombok-plugin:8.13'
+
+    runtimeOnly 'org.postgresql:postgresql'
+    runtimeOnly 'org.flywaydb:flyway-gradle-plugin:11.3.4'
+    implementation 'org.flywaydb:flyway-database-postgresql:11.3.4'
+
+    testImplementation 'org.testcontainers:junit-jupiter:1.19.3'
+    testImplementation 'org.testcontainers:postgresql:1.19.3'
+
+    testImplementation 'org.mockito:mockito-core:5.15.2'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    testImplementation 'org.assertj:assertj-core:3.26.3'
+
+    implementation 'org.mapstruct:mapstruct:1.5.5.Final'
+    annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
+    testAnnotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
+    implementation 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
+    annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
+
+}
+
+flyway {
+    url='jdbc:postgresql://localhost:5432/postgres'
+    user='postgres'
+    password='postgres'
+    cleanDisabled = false
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
