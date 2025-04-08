@@ -1,9 +1,18 @@
 package ru.tele2.govorova.otus.java.pro.student_management.service;
 
+import com.lowagie.text.Document;
+import com.lowagie.text.Paragraph;
+import com.lowagie.text.Phrase;
+import com.lowagie.text.pdf.BaseFont;
+import com.lowagie.text.pdf.PdfPTable;
+import com.lowagie.text.pdf.PdfWriter;
+import com.opencsv.exceptions.CsvValidationException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.persistence.OptimisticLockException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,18 +25,25 @@ import ru.tele2.govorova.otus.java.pro.student_management.dto.TranscriptDTO;
 import ru.tele2.govorova.otus.java.pro.student_management.dto.mapper.PassportMapper;
 import ru.tele2.govorova.otus.java.pro.student_management.dto.mapper.StudentMapper;
 import ru.tele2.govorova.otus.java.pro.student_management.dto.mapper.TranscriptMapper;
+import ru.tele2.govorova.otus.java.pro.student_management.dto.response.CsvUploadResponse;
 import ru.tele2.govorova.otus.java.pro.student_management.entity.Passport;
 import ru.tele2.govorova.otus.java.pro.student_management.entity.Student;
 import ru.tele2.govorova.otus.java.pro.student_management.entity.Transcript;
 import ru.tele2.govorova.otus.java.pro.student_management.exceptions.StudentNotFoundException;
+import ru.tele2.govorova.otus.java.pro.student_management.exceptions.StudentValidationException;
 import ru.tele2.govorova.otus.java.pro.student_management.exceptions.VersionConflictException;
 import ru.tele2.govorova.otus.java.pro.student_management.repository.StudentRepository;
 import ru.tele2.govorova.otus.java.pro.student_management.dto.response.GenerationResponse;
+import ru.tele2.govorova.otus.java.pro.student_management.util.CsvParser;
 import ru.tele2.govorova.otus.java.pro.student_management.util.StudentGenerator;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -46,6 +62,8 @@ public class StudentServiceImpl implements StudentService {
 
     private final StudentRepository studentRepository;
     private final StudentGenerator studentGenerator;
+
+    private final CsvParser csvParser;
 
     @Override
     public Page<StudentDTO> getAllStudents(
@@ -189,6 +207,143 @@ public class StudentServiceImpl implements StudentService {
                 .orElseThrow(() -> new StudentNotFoundException(studentId));
 
         studentRepository.deleteById(studentId);
+    }
+
+    @Transactional
+    @Override
+    public byte[] exportStudentsToExcel(String firstName, String lastName, String email, String passportNumber,
+                                        LocalDate enrollmentDateFrom, LocalDate enrollmentDateTo, Pageable pageable) {
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("Students");
+
+            CellStyle dateStyle = workbook.createCellStyle();
+            dateStyle.setDataFormat(
+                    workbook.getCreationHelper().createDataFormat().getFormat("dd.MM.yyyy")
+            );
+
+            Row headerRow = sheet.createRow(0);
+            headerRow.createCell(0).setCellValue("ID");
+            headerRow.createCell(1).setCellValue("Имя");
+            headerRow.createCell(2).setCellValue("Фамилия");
+            headerRow.createCell(3).setCellValue("Email");
+            headerRow.createCell(4).setCellValue("Дата поступления");
+            headerRow.createCell(5).setCellValue("Номер паспорта");
+            headerRow.createCell(6).setCellValue("Количество оценок");
+
+            int rowNum = 1;
+            Page<Student> students = studentRepository.findAllWithFilters(firstName,
+                    lastName,
+                    email,
+                    enrollmentDateFrom,
+                    enrollmentDateTo,
+                    pageable);
+            for (Student student : students) {
+                Row row = sheet.createRow(rowNum++);
+                row.createCell(0).setCellValue(student.getId());
+                row.createCell(1).setCellValue(student.getFirstName());
+                row.createCell(2).setCellValue(student.getLastName());
+                row.createCell(3).setCellValue(student.getEmail());
+                Cell dateCell = row.createCell(4);
+                dateCell.setCellValue(student.getEnrollmentDate());
+                dateCell.setCellStyle(dateStyle);
+                row.createCell(5).setCellValue(student.getPassport().getPassportNumber());
+                row.createCell(6).setCellValue(student.getTranscripts().size());
+            }
+
+            for (int i = 0; i < headerRow.getLastCellNum(); i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            workbook.write(baos);
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException("Ошибка при экспорте в Excel", e);
+        }
+    }
+
+    @Transactional
+    @Override
+    public byte[] exportStudentsToPDF(String firstName, String lastName, String email, String passportNumber,
+                                      LocalDate enrollmentDateFrom, LocalDate enrollmentDateTo, Pageable pageable) {
+        try(Document document = new Document()) {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+            InputStream fontStream = getClass().getResourceAsStream("/fonts/times.ttf");
+            if (fontStream == null) {
+                throw new IOException("Файл шрифта не найден!");
+            }
+
+            BaseFont baseFont = BaseFont.createFont(
+                    "times.ttf",
+                    BaseFont.IDENTITY_H,
+                    BaseFont.EMBEDDED,
+                    true,
+                    fontStream.readAllBytes(),
+                    null
+            );
+
+            PdfWriter.getInstance(document, baos);
+            document.open();
+
+            com.lowagie.text.Font titleFont = new com.lowagie.text.Font(baseFont, 18);
+            document.add(new Paragraph("Отчёт по студентам", titleFont));
+
+
+            com.lowagie.text.Font subtitleFont = new com.lowagie.text.Font(baseFont, 14);
+            document.add(new Paragraph("Автоматически сгенерировано " + LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) + " в " + LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")), subtitleFont));
+
+            PdfPTable table = new PdfPTable(7);
+            table.setWidthPercentage(100);
+            float[] columnWidths = {10f, 15f, 15f, 30f, 15f, 15f, 10f};
+            table.setWidths(columnWidths);
+            table.setSpacingBefore(20f);
+            table.setSpacingAfter(20f);
+
+            com.lowagie.text.Font headerFont = new com.lowagie.text.Font(baseFont, 14, com.lowagie.text.Font.BOLD);
+            table.addCell(new Phrase("ID", headerFont));
+            table.addCell(new Phrase("Имя", headerFont));
+            table.addCell(new Phrase("Фамилия", headerFont));
+            table.addCell(new Phrase("Email", headerFont));
+            table.addCell(new Phrase("Дата зачисления", headerFont));
+            table.addCell(new Phrase("Паспорт", headerFont));
+            table.addCell(new Phrase("Кол-во оценок", headerFont));
+
+            com.lowagie.text.Font dataFont = new com.lowagie.text.Font(baseFont, 12);
+            Page<Student> students = studentRepository.findAllWithFilters(firstName,
+                    lastName,
+                    email,
+                    enrollmentDateFrom,
+                    enrollmentDateTo,
+                    pageable);
+
+            for (Student student : students) {
+                table.addCell(new Phrase(String.valueOf(student.getId()), dataFont));
+                table.addCell(new Phrase(student.getFirstName(), dataFont));
+                table.addCell(new Phrase(student.getLastName(), dataFont));
+                table.addCell(new Phrase(student.getEmail(), dataFont));
+                table.addCell(new Phrase(student.getEnrollmentDate().format(DateTimeFormatter.ofPattern("dd.MM.yyyy")), dataFont));
+                table.addCell(new Phrase(student.getPassport().getPassportNumber(), dataFont));
+                table.addCell(new Phrase(String.valueOf(student.getTranscripts().size()), dataFont));
+            }
+
+            document.add(table);
+            document.close();
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException("Ошибка при экспорте в PDF", e);
+        }
+    }
+
+    @Transactional
+    @Override
+    public CsvUploadResponse processStudentUpload(MultipartFile file)
+            throws IOException, CsvValidationException, StudentValidationException {
+
+        List<Student> students = csvParser.parseStudentsFromCsv(file);
+        List<Student> savedStudents = studentRepository.saveAll(students);
+
+        return new CsvUploadResponse(savedStudents.size(), null);
     }
 
     @Transactional
