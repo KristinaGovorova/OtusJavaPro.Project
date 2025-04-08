@@ -9,6 +9,14 @@ import ru.tele2.govorova.otus.java.pro.student_management.dto.response.ApiErrorR
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(StudentValidationException.class)
+    public ResponseEntity<ApiErrorResponse> handleValidationException(StudentValidationException e) {
+        String message = "Ошибки валидации: " + String.join("; ", e.getErrors());
+        return ResponseEntity
+                .badRequest()
+                .body(new ApiErrorResponse(message, 400));
+    }
+
     @ExceptionHandler(VersionConflictException.class)
     public ResponseEntity<ApiErrorResponse> handleVersionConflictException(VersionConflictException e) {
         ApiErrorResponse errorResponse = new ApiErrorResponse(e.getMessage(), 409);

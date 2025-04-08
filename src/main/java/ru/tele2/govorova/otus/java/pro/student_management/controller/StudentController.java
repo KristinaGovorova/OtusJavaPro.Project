@@ -1,5 +1,6 @@
 package ru.tele2.govorova.otus.java.pro.student_management.controller;
 
+import com.opencsv.exceptions.CsvValidationException;
 import lombok.AllArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -13,11 +14,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import ru.tele2.govorova.otus.java.pro.student_management.dto.StudentDTO;
+import ru.tele2.govorova.otus.java.pro.student_management.dto.response.CsvUploadResponse;
 import ru.tele2.govorova.otus.java.pro.student_management.exceptions.StudentNotFoundException;
 import ru.tele2.govorova.otus.java.pro.student_management.exceptions.VersionConflictException;
 import ru.tele2.govorova.otus.java.pro.student_management.service.StudentService;
 import ru.tele2.govorova.otus.java.pro.student_management.dto.response.GenerationResponse;
 
+import java.io.IOException;
 import java.time.LocalDate;
 
 
@@ -92,5 +95,42 @@ public class StudentController {
     public ResponseEntity<GenerationResponse> generateStudentsJPA(@PathVariable int count) {
         GenerationResponse response = studentService.generateAndSaveStudents(count);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/export-excel")
+    public ResponseEntity<byte[]> exportExcel(
+            @RequestParam(required = false) String firstName,
+            @RequestParam(required = false) String lastName,
+            @RequestParam(required = false) String email,
+            @RequestParam(required = false) String passportNumber,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate enrollmentDateFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate enrollmentDateTo,
+            @PageableDefault(sort = "id", direction = Sort.Direction.ASC) Pageable pageable) {
+        byte[] excelData = studentService.exportStudentsToExcel(firstName, lastName, email, passportNumber, enrollmentDateFrom, enrollmentDateTo, pageable);
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=students.xlsx")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(excelData);
+    }
+
+    @GetMapping("/export-pdf")
+    public ResponseEntity<byte[]> exportPDF(
+            @RequestParam(required = false) String firstName,
+            @RequestParam(required = false) String lastName,
+            @RequestParam(required = false) String email,
+            @RequestParam(required = false) String passportNumber,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate enrollmentDateFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate enrollmentDateTo,
+            @PageableDefault(sort = "id", direction = Sort.Direction.ASC) Pageable pageable) throws IOException {
+        byte[] excelData = studentService.exportStudentsToPDF(firstName, lastName, email, passportNumber, enrollmentDateFrom, enrollmentDateTo, pageable);
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=students.pdf")
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(excelData);
+    }
+
+    @PostMapping("/import-csv")
+    public CsvUploadResponse uploadStudents(@RequestParam("file") MultipartFile file) throws CsvValidationException, IOException {
+        return studentService.processStudentUpload(file);
     }
 }
